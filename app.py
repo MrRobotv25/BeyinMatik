@@ -498,10 +498,6 @@ def create_database():
         print("Veritabanı başarıyla oluşturuldu!")
 
 if __name__ == '__main__':
-    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-    create_database()  # Veritabanını oluştur
-    app.run(debug=True)
-
-if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=False)  # debug=False YAP!
+
