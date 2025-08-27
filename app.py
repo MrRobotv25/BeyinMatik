@@ -537,22 +537,48 @@ def logout():
 
 def create_database():
     with app.app_context():
+        # Veritabanı tablolarını oluştur
         db.create_all()
-        init_categories()
+        print("Veritabanı tabloları oluşturuldu!")
         
+        # Kategorileri başlat
+        init_categories()
+        print("Kategoriler eklendi!")
+        
+        # Admin kullanıcısını oluştur (eğer yoksa)
         if not User.query.filter_by(username='admin').first():
             admin_user = User(
                 username='admin', 
-                password=generate_password_hash('10201020aA'),
+                password=generate_password_hash('admin123'),
                 class_level='Genel',
                 is_admin=True
             )
             db.session.add(admin_user)
             db.session.commit()
+            print("Admin kullanıcısı oluşturuldu!")
         
-        print("Veritabanı başarıyla oluşturuldu!")
+        print("Veritabanı başarıyla hazırlandı!")
 
 if __name__ == '__main__':
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    
+    # Veritabanını oluştur
+    with app.app_context():
+        db.create_all()
+        init_categories()
+        
+        # Admin kullanıcısını kontrol et ve oluştur
+        if not User.query.filter_by(username='admin').first():
+            admin_user = User(
+                username='admin', 
+                password=generate_password_hash('admin123'),
+                class_level='Genel',
+                is_admin=True
+            )
+            db.session.add(admin_user)
+            db.session.commit()
+    
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
