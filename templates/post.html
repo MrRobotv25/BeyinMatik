@@ -37,6 +37,12 @@
                 </p>
                 <div class="post-content">
                     {{ post.content|replace('\n', '<br>')|safe }}
+                    {% if post.image %}
+                    <div class="mt-3">
+                        <img src="{{ url_for('static', filename='uploads/' + post.image) }}" 
+                             class="img-fluid rounded" alt="Konu resmi" style="max-height: 400px;">
+                    </div>
+                    {% endif %}
                 </div>
                 
                 <div class="d-flex mt-3">
@@ -87,6 +93,13 @@
                         </div>
                         <p class="mb-2 mt-2">{{ comment.content }}</p>
                         
+                        {% if comment.image %}
+                        <div class="mt-2">
+                            <img src="{{ url_for('static', filename='uploads/' + comment.image) }}" 
+                                 class="img-fluid rounded" alt="Yorum resmi" style="max-height: 300px;">
+                        </div>
+                        {% endif %}
+                        
                         <div class="d-flex">
                             <a href="#" class="btn btn-sm btn-outline-primary me-2 like-btn" 
                                data-item-type="comment" data-item-id="{{ comment.id }}">
@@ -125,18 +138,24 @@
         <h5 class="mb-0">Yorum Yap</h5>
     </div>
     <div class="card-body">
-        <form method="POST" action="{{ url_for('add_comment', post_id=post.id) }}">
+        <form method="POST" action="{{ url_for('add_comment', post_id=post.id) }}" enctype="multipart/form-data">
             <div class="mb-3">
                 <textarea class="form-control" name="content" rows="3" 
                           placeholder="Yorumunuzu yazın..." required></textarea>
             </div>
+            
+            <div class="mb-3">
+                <label for="comment_image" class="form-label">Fotoğraf Ekle (İsteğe Bağlı)</label>
+                <input type="file" class="form-control" id="comment_image" name="image" accept="image/*">
+                <div class="form-text">PNG, JPG, JPEG, GIF formatları</div>
+            </div>
+            
             <button type="submit" class="btn btn-primary">Yorum Gönder</button>
         </form>
     </div>
 </div>
 
 <script>
-    // Beğeni butonları için işlevsellik
     document.addEventListener('click', function(e) {
         if (e.target.classList.contains('like-btn') || e.target.closest('.like-btn')) {
             e.preventDefault();
