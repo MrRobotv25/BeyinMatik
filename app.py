@@ -2,25 +2,37 @@ from flask import Flask, render_template, redirect, url_for, request, flash, jso
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, login_user, login_required, logout_user, UserMixin, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from datetime import datetime
 import os
+import uuid
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'supersecretkey'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///beyinmatik.db'
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+
 db = SQLAlchemy(app)
 
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
-# MODELLER
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+
+def get_random_filename(filename):
+    ext = filename.rsplit('.', 1)[1].lower()
+    return f"{uuid.uuid4().hex}.{ext}"
+
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(150), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
-    class_level = db.Column(db.String(10), default="5")  # 5,6,7,8
+    class_level = db.Column(db.String(10), default="5")
     solution_count = db.Column(db.Integer, default=0)
     rank = db.Column(db.String(50), default="Çaylak Üye")
     is_admin = db.Column(db.Boolean, default=False)
@@ -32,7 +44,7 @@ class User(UserMixin, db.Model):
 class Category(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    class_level = db.Column(db.String(10), nullable=False)  # 5,6,7,8,Genel
+    class_level = db.Column(db.String(10), nullable=False)
     posts = db.relationship('Post', backref='category', lazy=True)
     units = db.relationship('Unit', backref='category', lazy=True)
 
@@ -46,6 +58,7 @@ class Post(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
     content = db.Column(db.Text, nullable=False)
+    image = db.Column(db.String(200), nullable=True)
     date_posted = db.Column(db.DateTime, default=datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     category_id = db.Column(db.Integer, db.ForeignKey('category.id'))
@@ -57,6 +70,7 @@ class Post(db.Model):
 class Comment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     content = db.Column(db.Text, nullable=False)
+    image = db.Column(db.String(200), nullable=True)
     date_posted = db.Column(db.DateTime, default=datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     post_id = db.Column(db.Integer, db.ForeignKey('post.id'))
@@ -82,7 +96,6 @@ class Notification(db.Model):
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# HELPER FONKSİYONLAR
 def update_rank(user):
     if user.solution_count >= 20:
         user.rank = "Usta Üye"
@@ -95,7 +108,6 @@ def update_rank(user):
     db.session.commit()
 
 def init_categories():
-    # Kategoriler ve üniteleri oluştur
     categories_data = {
         "5": {
             "Matematik": ["Doğal Sayılar", "Kesirler", "Ondalık Gösterim", "Temel Geometri"],
@@ -127,17 +139,14 @@ def init_categories():
         }
     }
     
-    # Kategorileri ve üniteleri veritabanına ekle
     for class_level, categories in categories_data.items():
         for category_name, units in categories.items():
-            # Kategori var mı kontrol et
             category = Category.query.filter_by(name=category_name, class_level=class_level).first()
             if not category:
                 category = Category(name=category_name, class_level=class_level)
                 db.session.add(category)
                 db.session.commit()
             
-            # Üniteleri ekle
             for unit_name in units:
                 unit = Unit.query.filter_by(name=unit_name, category_id=category.id).first()
                 if not unit:
@@ -146,7 +155,6 @@ def init_categories():
     
     db.session.commit()
 
-# ROUTES
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -196,7 +204,6 @@ def forum():
     unit_id = request.args.get('unit_id', type=int)
     search_query = request.args.get('q', '')
     
-    # Filtreleme
     query = Post.query
     
     if class_level and class_level != 'Hepsi':
@@ -228,8 +235,22 @@ def create_post():
         category_id = request.form['category_id']
         unit_id = request.form['unit_id']
         
-        post = Post(title=title, content=content, user_id=current_user.id, 
-                   category_id=category_id, unit_id=unit_id)
+        image_filename = None
+        if 'image' in request.files:
+            file = request.files['image']
+            if file and file.filename != '' and allowed_file(file.filename):
+                filename = secure_filename(file.filename)
+                image_filename = get_random_filename(filename)
+                file.save(os.path.join(app.config['UPLOAD_FOLDER'], image_filename))
+        
+        post = Post(
+            title=title, 
+            content=content, 
+            user_id=current_user.id, 
+            category_id=category_id, 
+            unit_id=unit_id,
+            image=image_filename
+        )
         db.session.add(post)
         db.session.commit()
         
@@ -259,15 +280,27 @@ def view_post(post_id):
 def add_comment(post_id):
     content = request.form['content']
     
-    comment = Comment(content=content, user_id=current_user.id, post_id=post_id)
+    image_filename = None
+    if 'image' in request.files:
+        file = request.files['image']
+        if file and file.filename != '' and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            image_filename = get_random_filename(filename)
+            file.save(os.path.join(app.config['UPLOAD_FOLDER'], image_filename))
+    
+    comment = Comment(
+        content=content, 
+        user_id=current_user.id, 
+        post_id=post_id,
+        image=image_filename
+    )
     db.session.add(comment)
     
-    # Bildirim oluştur (posta sahip kullanıcıya)
     post = Post.query.get(post_id)
     if post.author.id != current_user.id:
         notification = Notification(
             user_id=post.author.id,
-            message=f"{current_user.username} konunuza yorum yaptı: {content[:50]}...",
+            message=f"{current_user.username} konunuza yorum yaptı!",
             link=f"/post/{post_id}"
         )
         db.session.add(notification)
@@ -287,19 +320,15 @@ def mark_solution(comment_id):
         flash('Sadece konu sahibi çözüm işaretleyebilir.', 'danger')
         return redirect(url_for('view_post', post_id=post.id))
     
-    # Önceki çözümleri sıfırla
     for c in post.comments:
         c.is_solution = False
     
-    # Yeni çözümü işaretle
     comment.is_solution = True
     post.is_solved = True
     
-    # Çözüm sayısını güncelle
     comment.author.solution_count += 1
     update_rank(comment.author)
     
-    # Bildirim oluştur
     notification = Notification(
         user_id=comment.author.id,
         message=f"{current_user.username} yorumunuzu çözüm olarak işaretledi!",
@@ -336,7 +365,6 @@ def like_item(item_type, item_id):
         db.session.add(new_like)
         liked = True
         
-        # Bildirim oluştur (beğenilen içeriğin sahibine)
         if item.author.id != current_user.id:
             notification = Notification(
                 user_id=item.author.id,
@@ -376,7 +404,6 @@ def get_notifications():
         "date_created": n.date_created.strftime('%d.%m.%Y %H:%M')
     } for n in notifications]
     
-    # Bildirimleri okundu olarak işaretle
     for n in notifications:
         n.seen = True
     
@@ -409,9 +436,14 @@ def delete_post(post_id):
     post = Post.query.get_or_404(post_id)
     
     if current_user.is_admin or post.author.id == current_user.id:
-        # İlişkili yorumları ve beğenileri sil
         Comment.query.filter_by(post_id=post_id).delete()
         Like.query.filter_by(post_id=post_id).delete()
+        
+        if post.image:
+            try:
+                os.remove(os.path.join(app.config['UPLOAD_FOLDER'], post.image))
+            except:
+                pass
         
         db.session.delete(post)
         db.session.commit()
@@ -429,8 +461,13 @@ def delete_comment(comment_id):
     post_id = comment.post_id
     
     if current_user.is_admin or comment.author.id == current_user.id:
-        # İlişkili beğenileri sil
         Like.query.filter_by(comment_id=comment_id).delete()
+        
+        if comment.image:
+            try:
+                os.remove(os.path.join(app.config['UPLOAD_FOLDER'], comment.image))
+            except:
+                pass
         
         db.session.delete(comment)
         db.session.commit()
@@ -456,6 +493,26 @@ def edit_post(post_id):
         post.category_id = request.form['category_id']
         post.unit_id = request.form['unit_id']
         
+        if 'remove_image' in request.form and post.image:
+            try:
+                os.remove(os.path.join(app.config['UPLOAD_FOLDER'], post.image))
+            except:
+                pass
+            post.image = None
+        
+        if 'image' in request.files:
+            file = request.files['image']
+            if file and file.filename != '' and allowed_file(file.filename):
+                if post.image:
+                    try:
+                        os.remove(os.path.join(app.config['UPLOAD_FOLDER'], post.image))
+                    except:
+                        pass
+                
+                filename = secure_filename(file.filename)
+                post.image = get_random_filename(filename)
+                file.save(os.path.join(app.config['UPLOAD_FOLDER'], post.image))
+        
         db.session.commit()
         flash('Konu başarıyla güncellendi!', 'success')
         return redirect(url_for('view_post', post_id=post_id))
@@ -478,17 +535,15 @@ def logout():
     logout_user()
     return redirect(url_for('index'))
 
-# Uygulama başlangıcında veritabanını oluştur
 def create_database():
     with app.app_context():
         db.create_all()
         init_categories()
         
-        # Admin kullanıcı oluştur (eğer yoksa)
         if not User.query.filter_by(username='admin').first():
             admin_user = User(
                 username='admin', 
-                password=generate_password_hash('admin123'),
+                password=generate_password_hash('10201020aA'),
                 class_level='Genel',
                 is_admin=True
             )
@@ -498,6 +553,6 @@ def create_database():
         print("Veritabanı başarıyla oluşturuldu!")
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)  # debug=False YAP!
-
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    create_database()
+    app.run(debug=True)
