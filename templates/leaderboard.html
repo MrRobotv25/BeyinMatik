@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-10">
+        <div class="card shadow-lg">
+            <div class="card-header bg-primary text-white">
+                <h3 class="mb-0"><i class="fas fa-trophy me-2"></i>Liderlik Tablosu</h3>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Sıra</th>
+                                <th>Kullanıcı</th>
+                                <th>Rank</th>
+                                <th>Çözüm Sayısı</th>
+                                <th>Sınıf</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for user in users %}
+                            <tr>
+                                <td><strong>{{ loop.index }}</strong></td>
+                                <td>
+                                    <a href="{{ url_for('profile', username=user.username) }}" class="text-decoration-none">
+                                        <img src="https://ui-avatars.com/api/?name={{ user.username }}&background=random&size=32" 
+                                             class="rounded-circle me-2" alt="{{ user.username }}">
+                                        {{ user.username }}
+                                    </a>
+                                </td>
+                                <td>
+                                    <span class="badge 
+                                        {% if user.rank == 'Usta Üye' %}bg-success
+                                        {% elif user.rank == 'Zeki Üye' %}bg-info
+                                        {% elif user.rank == 'Aktif Üye' %}bg-primary
+                                        {% else %}bg-secondary{% endif %}">
+                                        {{ user.rank }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="fw-bold">{{ user.solution_count }}</span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">{{ user.class_level }}. Sınıf</span>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center py-4">
+                                    <i class="fas fa-users fa-3x text-muted mb-3"></i>
+                                    <h5 class="text-muted">Henüz kullanıcı bulunmamaktadır</h5>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

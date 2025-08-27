@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="fas fa-forumbee text-primary me-2"></i>Forum</h2>
+    <a href="{{ url_for('create_post') }}" class="btn btn-success">
+        <i class="fas fa-plus me-1"></i>Yeni Konu
+    </a>
+</div>
+
+<div class="row">
+    <div class="col-md-3">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="fas fa-filter me-1"></i>Filtreler</h5>
+            </div>
+            <div class="card-body">
+                <form method="GET" action="{{ url_for('forum') }}">
+                    <div class="mb-3">
+                        <label class="form-label">Sınıf</label>
+                        <select class="form-select" name="class_level" onchange="this.form.submit()">
+                            <option value="Hepsi" {% if not class_level or class_level == 'Hepsi' %}selected{% endif %}>Hepsi</option>
+                            <option value="5" {% if class_level == '5' %}selected{% endif %}>5. Sınıf</option>
+                            <option value="6" {% if class_level == '6' %}selected{% endif %}>6. Sınıf</option>
+                            <option value="7" {% if class_level == '7' %}selected{% endif %}>7. Sınıf</option>
+                            <option value="8" {% if class_level == '8' %}selected{% endif %}>8. Sınıf</option>
+                            <option value="Genel" {% if class_level == 'Genel' %}selected{% endif %}>Genel</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Kategori</label>
+                        <select class="form-select" name="category_id" onchange="this.form.submit()">
+                            <option value="">Hepsi</option>
+                            {% for category in categories %}
+                                {% if not class_level or class_level == 'Hepsi' or category.class_level == class_level %}
+                                <option value="{{ category.id }}" {% if category_id == category.id %}selected{% endif %}>
+                                    {{ category.name }} ({{ category.class_level }}. Sınıf)
+                                </option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Ünite</label>
+                        <select class="form-select" name="unit_id" onchange="this.form.submit()">
+                            <option value="">Hepsi</option>
+                            {% for unit in units %}
+                                <option value="{{ unit.id }}" {% if unit_id == unit.id %}selected{% endif %}>
+                                    {{ unit.name }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary w-100">Uygula</button>
+                </form>
+            </div>
+        </div>
+        
+        <div class="card shadow-sm">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0"><i class="fas fa-chart-line me-1"></i>İstatistikler</h5>
+            </div>
+            <div class="card-body">
+                <p class="mb-1">Toplam Konu: {{ posts|length }}</p>
+                <p class="mb-1">Çözülen Konu: {{ posts|selectattr('is_solved')|list|length }}</p>
+                <p class="mb-0">Aktif Kullanıcı: {{ current_user.username }}</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-9">
+        {% if posts %}
+            <div class="card shadow-sm">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">Konular</h5>
+                </div>
+                <div class="card-body p-0">
+                    {% for post in posts %}
+                    <div class="border-bottom p-3 {% if post.is_solved %}bg-light-solved{% endif %}">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="flex-grow-1">
+                                <h5 class="mb-1">
+                                    <a href="{{ url_for('view_post', post_id=post.id) }}" class="text-decoration-none">
+                                        {{ post.title }}
+                                        {% if post.is_solved %}
+                                        <span class="badge bg-success ms-1"><i class="fas fa-check"></i> Çözüldü</span>
+                                        {% endif %}
+                                    </a>
+                                </h5>
+                                <p class="text-muted mb-1 small">
+                                    <a href="{{ url_for('profile', username=post.author.username) }}" class="text-decoration-none">
+                                        <i class="fas fa-user me-1"></i>{{ post.author.username }}
+                                    </a> • 
+                                    <i class="fas fa-clock me-1"></i>{{ post.date_posted.strftime('%d.%m.%Y %H:%M') }} • 
+                                    <i class="fas fa-folder me-1"></i>{{ post.category.name }} • 
+                                    <i class="fas fa-book me-1"></i>{{ post.unit.name }}
+                                </p>
+                                <p class="mb-2">{{ post.content|truncate(150) }}</p>
+                                <div class="d-flex">
+                                    <span class="badge bg-secondary me-2">
+                                        <i class="fas fa-comments me-1"></i>{{ post.comments|length }} Yorum
+                                    </span>
+                                    <span class="badge bg-primary">
+                                        <i class="fas fa-heart me-1"></i>{{ post.likes|length }} Beğeni
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="flex-shrink-0 ms-3">
+                                <img src="https://ui-avatars.com/api/?name={{ post.author.username }}&background=random&size=40" 
+                                     class="rounded-circle" alt="{{ post.author.username }}">
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        {% else %}
+            <div class="text-center py-5">
+                <i class="fas fa-comments fa-3x text-muted mb-3"></i>
+                <h4 class="text-muted">Henüz konu bulunmamaktadır</h4>
+                <p class="text-muted">İlk konuyu oluşturarak foruma katkıda bulunun!</p>
+                <a href="{{ url_for('create_post') }}" class="btn btn-primary">Konu Oluştur</a>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

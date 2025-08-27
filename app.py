@@ -1,0 +1,507 @@
+from flask import Flask, render_template, redirect, url_for, request, flash, jsonify
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, login_user, login_required, logout_user, UserMixin, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime
+import os
+
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'supersecretkey'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///beyinmatik.db'
+app.config['UPLOAD_FOLDER'] = 'static/uploads'
+db = SQLAlchemy(app)
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+# MODELLER
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(150), unique=True, nullable=False)
+    password = db.Column(db.String(200), nullable=False)
+    class_level = db.Column(db.String(10), default="5")  # 5,6,7,8
+    solution_count = db.Column(db.Integer, default=0)
+    rank = db.Column(db.String(50), default="Çaylak Üye")
+    is_admin = db.Column(db.Boolean, default=False)
+    notifications = db.relationship('Notification', backref='user', lazy=True)
+    posts = db.relationship('Post', backref='author', lazy=True)
+    comments = db.relationship('Comment', backref='author', lazy=True)
+    likes = db.relationship('Like', backref='user', lazy=True)
+
+class Category(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    class_level = db.Column(db.String(10), nullable=False)  # 5,6,7,8,Genel
+    posts = db.relationship('Post', backref='category', lazy=True)
+    units = db.relationship('Unit', backref='category', lazy=True)
+
+class Unit(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    category_id = db.Column(db.Integer, db.ForeignKey('category.id'))
+    posts = db.relationship('Post', backref='unit', lazy=True)
+
+class Post(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    date_posted = db.Column(db.DateTime, default=datetime.utcnow)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    category_id = db.Column(db.Integer, db.ForeignKey('category.id'))
+    unit_id = db.Column(db.Integer, db.ForeignKey('unit.id'))
+    is_solved = db.Column(db.Boolean, default=False)
+    comments = db.relationship('Comment', backref='post', lazy=True)
+    likes = db.relationship('Like', backref='post', lazy=True)
+
+class Comment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    content = db.Column(db.Text, nullable=False)
+    date_posted = db.Column(db.DateTime, default=datetime.utcnow)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    post_id = db.Column(db.Integer, db.ForeignKey('post.id'))
+    is_solution = db.Column(db.Boolean, default=False)
+    likes = db.relationship('Like', backref='comment', lazy=True)
+
+class Like(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=True)
+    comment_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=True)
+    date_liked = db.Column(db.DateTime, default=datetime.utcnow)
+
+class Notification(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    message = db.Column(db.String(200))
+    link = db.Column(db.String(200))
+    seen = db.Column(db.Boolean, default=False)
+    date_created = db.Column(db.DateTime, default=datetime.utcnow)
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+# HELPER FONKSİYONLAR
+def update_rank(user):
+    if user.solution_count >= 20:
+        user.rank = "Usta Üye"
+    elif user.solution_count >= 10:
+        user.rank = "Zeki Üye"
+    elif user.solution_count >= 5:
+        user.rank = "Aktif Üye"
+    else:
+        user.rank = "Çaylak Üye"
+    db.session.commit()
+
+def init_categories():
+    # Kategoriler ve üniteleri oluştur
+    categories_data = {
+        "5": {
+            "Matematik": ["Doğal Sayılar", "Kesirler", "Ondalık Gösterim", "Temel Geometri"],
+            "Türkçe": ["Sözcükte Anlam", "Cümlede Anlam", "Paragrafta Anlam", "Dil Bilgisi"],
+            "Fen Bilimleri": ["Güneş, Dünya ve Ay", "Canlılar Dünyası", "Kuvvetin Ölçülmesi", "Madde ve Değişim"],
+            "Sosyal Bilgiler": ["Haklarımı Öğreniyorum", "Adım Adım Türkiye", "Bölgemizi Tanıyalım", "Üretim, Dağıtım ve Tüketim"]
+        },
+        "6": {
+            "Matematik": ["Kesirlerle İşlemler", "Ondalık Gösterim", "Oran", "Cebirsel İfadeler"],
+            "Türkçe": ["Sözcükte Anlam", "Cümlede Anlam", "Paragrafta Anlam", "Yazım Kuralları"],
+            "Fen Bilimleri": ["Güneş Sistemi ve Tutulmalar", "Vücudumuzdaki Sistemler", "Kuvvet ve Hareket", "Madde ve Isı"],
+            "Sosyal Bilgiler": ["Birey ve Toplum", "Kültür ve Miras", "İnsanlar, Yerler ve Çevreler", "Bilim, Teknoloji ve Toplum"]
+        },
+        "7": {
+            "Matematik": ["Tam Sayılarla İşlemler", "Rasyonel Sayılar", "Cebirsel İfadeler", "Eşitlik ve Denklem"],
+            "Türkçe": ["Fiiller", "Zarflar", "Paragrafta Anlam", "Anlatım Bozuklukları"],
+            "Fen Bilimleri": ["Güneş Sistemi ve Ötesi", "Hücre ve Bölünmeler", "Kuvvet ve Enerji", "Saf Madde ve Karışımlar"],
+            "Sosyal Bilgiler": ["İletişim ve İnsan İlişkileri", "Ülkemizde Nüfus", "Türk Tarihinde Yolculuk", "Zaman İçinde Bilim"]
+        },
+        "8": {
+            "Matematik": ["Çarpanlar ve Katlar", "Üslü İfadeler", "Kareköklü İfadeler", "Veri Analizi"],
+            "Türkçe": ["Cümlenin Ögeleri", "Fiilimsiler", "Yazım Kuralları", "Anlatım Türleri"],
+            "Fen Bilimleri": ["Mevsimler ve İklim", "DNA ve Genetik Kod", "Basınç", "Madde ve Endüstri"],
+            "Sosyal Bilgiler": ["Bir Kahraman Doğuyor", "Milli Uyanış", "Atatürkçülük", "Demokratikleşme Çabaları"]
+        },
+        "Genel": {
+            "Genel Tartışma": ["Tanışma", "Duyurular", "Öneri ve Şikayetler", "Genel Tartışma"],
+            "Rehberlik": ["Ders Çalışma Teknikleri", "Sınav Kaygısı", "Hedef Belirleme", "Meslek Tanıtımı"]
+        }
+    }
+    
+    # Kategorileri ve üniteleri veritabanına ekle
+    for class_level, categories in categories_data.items():
+        for category_name, units in categories.items():
+            # Kategori var mı kontrol et
+            category = Category.query.filter_by(name=category_name, class_level=class_level).first()
+            if not category:
+                category = Category(name=category_name, class_level=class_level)
+                db.session.add(category)
+                db.session.commit()
+            
+            # Üniteleri ekle
+            for unit_name in units:
+                unit = Unit.query.filter_by(name=unit_name, category_id=category.id).first()
+                if not unit:
+                    unit = Unit(name=unit_name, category_id=category.id)
+                    db.session.add(unit)
+    
+    db.session.commit()
+
+# ROUTES
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/register', methods=['GET','POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = generate_password_hash(request.form['password'])
+        class_level = request.form['class_level']
+        
+        if User.query.filter_by(username=username).first():
+            flash('Bu kullanıcı adı zaten kullanılıyor!', 'danger')
+            return redirect(url_for('register'))
+            
+        new_user = User(username=username, password=password, class_level=class_level)
+        db.session.add(new_user)
+        db.session.commit()
+        
+        flash('Kayıt başarılı! Giriş yapabilirsiniz.', 'success')
+        return redirect(url_for('login'))
+    
+    return render_template('register.html')
+
+@app.route('/login', methods=['GET','POST'])
+def login():
+    if request.method=='POST':
+        username = request.form['username']
+        password = request.form['password']
+        user = User.query.filter_by(username=username).first()
+        
+        if user and check_password_hash(user.password, password):
+            login_user(user)
+            next_page = request.args.get('next')
+            return redirect(next_page) if next_page else redirect(url_for('forum'))
+        else:
+            flash('Hatalı kullanıcı adı veya şifre', 'danger')
+            return redirect(url_for('login'))
+    
+    return render_template('login.html')
+
+@app.route('/forum')
+@login_required
+def forum():
+    class_level = request.args.get('class_level', current_user.class_level)
+    category_id = request.args.get('category_id', type=int)
+    unit_id = request.args.get('unit_id', type=int)
+    search_query = request.args.get('q', '')
+    
+    # Filtreleme
+    query = Post.query
+    
+    if class_level and class_level != 'Hepsi':
+        query = query.join(Category).filter(Category.class_level == class_level)
+    
+    if category_id:
+        query = query.filter(Post.category_id == category_id)
+    
+    if unit_id:
+        query = query.filter(Post.unit_id == unit_id)
+    
+    if search_query:
+        query = query.filter(Post.title.ilike(f'%{search_query}%') | Post.content.ilike(f'%{search_query}%'))
+    
+    posts = query.order_by(Post.date_posted.desc()).all()
+    
+    categories = Category.query.all()
+    units = Unit.query.all()
+    
+    return render_template('forum.html', posts=posts, categories=categories, units=units, 
+                          class_level=class_level, category_id=category_id, unit_id=unit_id)
+
+@app.route('/create_post', methods=['GET', 'POST'])
+@login_required
+def create_post():
+    if request.method == 'POST':
+        title = request.form['title']
+        content = request.form['content']
+        category_id = request.form['category_id']
+        unit_id = request.form['unit_id']
+        
+        post = Post(title=title, content=content, user_id=current_user.id, 
+                   category_id=category_id, unit_id=unit_id)
+        db.session.add(post)
+        db.session.commit()
+        
+        flash('Konunuz başarıyla oluşturuldu!', 'success')
+        return redirect(url_for('view_post', post_id=post.id))
+    
+    categories = Category.query.filter(
+        (Category.class_level == current_user.class_level) | 
+        (Category.class_level == 'Genel')
+    ).all()
+    
+    units = Unit.query.join(Category).filter(
+        (Category.class_level == current_user.class_level) | 
+        (Category.class_level == 'Genel')
+    ).all()
+    
+    return render_template('create_post.html', categories=categories, units=units)
+
+@app.route('/post/<int:post_id>')
+@login_required
+def view_post(post_id):
+    post = Post.query.get_or_404(post_id)
+    return render_template('post.html', post=post)
+
+@app.route('/add_comment/<int:post_id>', methods=['POST'])
+@login_required
+def add_comment(post_id):
+    content = request.form['content']
+    
+    comment = Comment(content=content, user_id=current_user.id, post_id=post_id)
+    db.session.add(comment)
+    
+    # Bildirim oluştur (posta sahip kullanıcıya)
+    post = Post.query.get(post_id)
+    if post.author.id != current_user.id:
+        notification = Notification(
+            user_id=post.author.id,
+            message=f"{current_user.username} konunuza yorum yaptı: {content[:50]}...",
+            link=f"/post/{post_id}"
+        )
+        db.session.add(notification)
+    
+    db.session.commit()
+    
+    flash('Yorumunuz eklendi!', 'success')
+    return redirect(url_for('view_post', post_id=post_id))
+
+@app.route('/mark_solution/<int:comment_id>')
+@login_required
+def mark_solution(comment_id):
+    comment = Comment.query.get_or_404(comment_id)
+    post = Post.query.get_or_404(comment.post_id)
+    
+    if post.author.id != current_user.id:
+        flash('Sadece konu sahibi çözüm işaretleyebilir.', 'danger')
+        return redirect(url_for('view_post', post_id=post.id))
+    
+    # Önceki çözümleri sıfırla
+    for c in post.comments:
+        c.is_solution = False
+    
+    # Yeni çözümü işaretle
+    comment.is_solution = True
+    post.is_solved = True
+    
+    # Çözüm sayısını güncelle
+    comment.author.solution_count += 1
+    update_rank(comment.author)
+    
+    # Bildirim oluştur
+    notification = Notification(
+        user_id=comment.author.id,
+        message=f"{current_user.username} yorumunuzu çözüm olarak işaretledi!",
+        link=f"/post/{post.id}"
+    )
+    db.session.add(notification)
+    
+    db.session.commit()
+    
+    flash('Çözüm olarak işaretlendi!', 'success')
+    return redirect(url_for('view_post', post_id=post.id))
+
+@app.route('/like/<string:item_type>/<int:item_id>')
+@login_required
+def like_item(item_type, item_id):
+    if item_type == 'post':
+        item = Post.query.get_or_404(item_id)
+        existing_like = Like.query.filter_by(user_id=current_user.id, post_id=item_id).first()
+    elif item_type == 'comment':
+        item = Comment.query.get_or_404(item_id)
+        existing_like = Like.query.filter_by(user_id=current_user.id, comment_id=item_id).first()
+    else:
+        return jsonify({'success': False, 'message': 'Geçersiz tip'})
+    
+    if existing_like:
+        db.session.delete(existing_like)
+        liked = False
+    else:
+        new_like = Like(user_id=current_user.id)
+        if item_type == 'post':
+            new_like.post_id = item_id
+        else:
+            new_like.comment_id = item_id
+        db.session.add(new_like)
+        liked = True
+        
+        # Bildirim oluştur (beğenilen içeriğin sahibine)
+        if item.author.id != current_user.id:
+            notification = Notification(
+                user_id=item.author.id,
+                message=f"{current_user.username} içeriğinizi beğendi!",
+                link=f"/post/{item.post_id if item_type == 'comment' else item.id}"
+            )
+            db.session.add(notification)
+    
+    db.session.commit()
+    
+    like_count = len(item.likes)
+    
+    return jsonify({
+        'success': True, 
+        'liked': liked, 
+        'like_count': like_count
+    })
+
+@app.route('/profile/<username>')
+@login_required
+def profile(username):
+    user = User.query.filter_by(username=username).first_or_404()
+    posts = Post.query.filter_by(user_id=user.id).order_by(Post.date_posted.desc()).limit(10).all()
+    comments = Comment.query.filter_by(user_id=user.id).order_by(Comment.date_posted.desc()).limit(10).all()
+    
+    return render_template('profile.html', user=user, posts=posts, comments=comments)
+
+@app.route('/notifications')
+@login_required
+def get_notifications():
+    notifications = Notification.query.filter_by(user_id=current_user.id, seen=False).order_by(Notification.date_created.desc()).all()
+    
+    notif_list = [{
+        "id": n.id, 
+        "message": n.message, 
+        "link": n.link,
+        "date_created": n.date_created.strftime('%d.%m.%Y %H:%M')
+    } for n in notifications]
+    
+    # Bildirimleri okundu olarak işaretle
+    for n in notifications:
+        n.seen = True
+    
+    db.session.commit()
+    
+    return jsonify(notif_list)
+
+@app.route('/leaderboard')
+@login_required
+def leaderboard():
+    users = User.query.order_by(User.solution_count.desc()).all()
+    return render_template('leaderboard.html', users=users)
+
+@app.route('/admin')
+@login_required
+def admin_panel():
+    if not current_user.is_admin:
+        flash('Admin erişiminiz yok!', 'danger')
+        return redirect(url_for('forum'))
+    
+    users = User.query.all()
+    posts = Post.query.all()
+    categories = Category.query.all()
+    
+    return render_template('admin.html', users=users, posts=posts, categories=categories)
+
+@app.route('/delete_post/<int:post_id>')
+@login_required
+def delete_post(post_id):
+    post = Post.query.get_or_404(post_id)
+    
+    if current_user.is_admin or post.author.id == current_user.id:
+        # İlişkili yorumları ve beğenileri sil
+        Comment.query.filter_by(post_id=post_id).delete()
+        Like.query.filter_by(post_id=post_id).delete()
+        
+        db.session.delete(post)
+        db.session.commit()
+        
+        flash('Konu başarıyla silindi!', 'success')
+    else:
+        flash('Bu işlem için yetkiniz yok!', 'danger')
+    
+    return redirect(url_for('forum'))
+
+@app.route('/delete_comment/<int:comment_id>')
+@login_required
+def delete_comment(comment_id):
+    comment = Comment.query.get_or_404(comment_id)
+    post_id = comment.post_id
+    
+    if current_user.is_admin or comment.author.id == current_user.id:
+        # İlişkili beğenileri sil
+        Like.query.filter_by(comment_id=comment_id).delete()
+        
+        db.session.delete(comment)
+        db.session.commit()
+        
+        flash('Yorum başarıyla silindi!', 'success')
+    else:
+        flash('Bu işlem için yetkiniz yok!', 'danger')
+    
+    return redirect(url_for('view_post', post_id=post_id))
+
+@app.route('/edit_post/<int:post_id>', methods=['GET', 'POST'])
+@login_required
+def edit_post(post_id):
+    post = Post.query.get_or_404(post_id)
+    
+    if not (current_user.is_admin or post.author.id == current_user.id):
+        flash('Bu işlem için yetkiniz yok!', 'danger')
+        return redirect(url_for('view_post', post_id=post_id))
+    
+    if request.method == 'POST':
+        post.title = request.form['title']
+        post.content = request.form['content']
+        post.category_id = request.form['category_id']
+        post.unit_id = request.form['unit_id']
+        
+        db.session.commit()
+        flash('Konu başarıyla güncellendi!', 'success')
+        return redirect(url_for('view_post', post_id=post_id))
+    
+    categories = Category.query.all()
+    units = Unit.query.all()
+    
+    return render_template('edit_post.html', post=post, categories=categories, units=units)
+
+@app.route('/get_units/<int:category_id>')
+@login_required
+def get_units(category_id):
+    units = Unit.query.filter_by(category_id=category_id).all()
+    units_list = [{'id': unit.id, 'name': unit.name} for unit in units]
+    return jsonify(units_list)
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('index'))
+
+# Uygulama başlangıcında veritabanını oluştur
+def create_database():
+    with app.app_context():
+        db.create_all()
+        init_categories()
+        
+        # Admin kullanıcı oluştur (eğer yoksa)
+        if not User.query.filter_by(username='admin').first():
+            admin_user = User(
+                username='admin', 
+                password=generate_password_hash('admin123'),
+                class_level='Genel',
+                is_admin=True
+            )
+            db.session.add(admin_user)
+            db.session.commit()
+        
+        print("Veritabanı başarıyla oluşturuldu!")
+
+if __name__ == '__main__':
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    create_database()  # Veritabanını oluştur
+    app.run(debug=True)
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)

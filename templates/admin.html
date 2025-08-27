@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="fas fa-cog me-2"></i>Yönetim Paneli</h2>
+</div>
+
+<ul class="nav nav-tabs" id="adminTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="users-tab" data-bs-toggle="tab" 
+                data-bs-target="#users" type="button" role="tab">Kullanıcılar</button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="posts-tab" data-bs-toggle="tab" 
+                data-bs-target="#posts" type="button" role="tab">Konular</button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="categories-tab" data-bs-toggle="tab" 
+                data-bs-target="#categories" type="button" role="tab">Kategoriler</button>
+    </li>
+</ul>
+
+<div class="tab-content mt-3" id="adminTabsContent">
+    <!-- Kullanıcılar -->
+    <div class="tab-pane fade show active" id="users" role="tabpanel">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Kullanıcı Yönetimi</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Kullanıcı Adı</th>
+                                <th>Sınıf</th>
+                                <th>Rank</th>
+                                <th>Çözüm</th>
+                                <th>Admin</th>
+                                <th>İşlemler</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for user in users %}
+                            <tr>
+                                <td>{{ user.id }}</td>
+                                <td>{{ user.username }}</td>
+                                <td>{{ user.class_level }}</td>
+                                <td>{{ user.rank }}</td>
+                                <td>{{ user.solution_count }}</td>
+                                <td>
+                                    {% if user.is_admin %}
+                                    <span class="badge bg-success">Evet</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">Hayır</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if not user.is_admin %}
+                                    <a href="#" class="btn btn-sm btn-outline-success">Admin Yap</a>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Konular -->
+    <div class="tab-pane fade" id="posts" role="tabpanel">
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">Konu Yönetimi</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Başlık</th>
+                                <th>Yazar</th>
+                                <th>Kategori</th>
+                                <th>Tarih</th>
+                                <th>Çözüldü</th>
+                                <th>İşlemler</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for post in posts %}
+                            <tr>
+                                <td>{{ post.id }}</td>
+                                <td>{{ post.title|truncate(30) }}</td>
+                                <td>{{ post.author.username }}</td>
+                                <td>{{ post.category.name }}</td>
+                                <td>{{ post.date_posted.strftime('%d.%m.%Y') }}</td>
+                                <td>
+                                    {% if post.is_solved %}
+                                    <span class="badge bg-success">Evet</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">Hayır</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <a href="{{ url_for('view_post', post_id=post.id) }}" 
+                                       class="btn btn-sm btn-outline-primary">Görüntüle</a>
+                                    <a href="{{ url_for('delete_post', post_id=post.id) }}" 
+                                       class="btn btn-sm btn-outline-danger">Sil</a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Kategoriler -->
+    <div class="tab-pane fade" id="categories" role="tabpanel">
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0">Kategori Yönetimi</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    {% for category in categories %}
+                    <div class="col-md-6 mb-3">
+                        <div class="card">
+                            <div class="card-header">
+                                <h6 class="mb-0">{{ category.name }} ({{ category.class_level }}. Sınıf)</h6>
+                            </div>
+                            <div class="card-body">
+                                <h6>Üniteler:</h6>
+                                <ul class="list-group list-group-flush">
+                                    {% for unit in category.units %}
+                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                        {{ unit.name }}
+                                        <span class="badge bg-primary rounded-pill">{{ unit.posts|length }}</span>
+                                    </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

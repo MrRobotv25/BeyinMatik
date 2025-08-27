@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>Merhaba, {{ current_user.username }}! ({{ current_user.rank }})</h3>
+    <div class="d-flex align-items-center">
+        <select id="class_select" class="form-select w-auto me-2" onchange="changeClass()">
+            <option value="5" {% if class_level=='5' %}selected{% endif %}>5. Sınıf</option>
+            <option value="6" {% if class_level=='6' %}selected{% endif %}>6. Sınıf</option>
+            <option value="7" {% if class_level=='7' %}selected{% endif %}>7. Sınıf</option>
+            <option value="8" {% if class_level=='8' %}selected{% endif %}>8. Sınıf</option>
+        </select>
+        <select id="category_select" class="form-select w-auto me-3" onchange="changeCategory()">
+            <option value="Hepsi" {% if category=='Hepsi' %}selected{% endif %}>Hepsi</option>
+            <option value="Matematik" {% if category=='Matematik' %}selected{% endif %}>Matematik</option>
+            <option value="Türkçe" {% if category=='Türkçe' %}selected{% endif %}>Türkçe</option>
+            <option value="Fen Bilimleri" {% if category=='Fen Bilimleri' %}selected{% endif %}>Fen Bilimleri</option>
+        </select>
+        <button class="btn btn-danger position-relative me-2" id="notif_btn">
+            Bildirim
+            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning" id="notif_count"></span>
+        </button>
+        <a class="btn btn-secondary" href="{{ url_for('logout') }}">Çıkış</a>
+    </div>
+</div>
+
+<div class="card mb-4 shadow-sm p-3 rounded-4">
+    <h4>Yeni Soru Ekle</h4>
+    <form method="POST" enctype="multipart/form-data">
+        <div class="mb-3">
+            <textarea class="form-control" name="text" placeholder="Sorunu yaz..." required></textarea>
+        </div>
+        <div class="mb-3">
+            <select class="form-select mb-2" name="category" required>
+                <option value="Matematik">Matematik</option>
+                <option value="Türkçe">Türkçe</option>
+                <option value="Fen Bilimleri">Fen Bilimleri</option>
+            </select>
+            <input type="file" name="photo" class="form-control mb-2">
+            <input type="file" name="video" class="form-control">
+        </div>
+        <input type="hidden" name="class_level" value="{{ class_level }}">
+        <button class="btn btn-success shadow-sm">Soruyu Ekle</button>
+    </form>
+</div>
+
+<h4>Mevcut Sorular ({{ class_level }}. Sınıf - {{ category }})</h4>
+<div class="row">
+{% for q in questions %}
+<div class="col-md-6 mb-3">
+<div class="card shadow-sm p-3 rounded-3">
+    <div class="card-body">
+        <p><strong>{{ q.user.username }}:</strong> {{ q.text }} <span class="badge bg-info">{{ q.category }}</span></p>
+        {% if q.photo %}
+        <img src="{{ url_for('static', filename='uploads/' + q.photo) }}" class="img-fluid mb-2 rounded">
+        {% endif %}
+        {% if q.video %}
+        <video controls class="w-100 mb-2 rounded">
+            <source src="{{ url_for('static', filename='uploads/' + q.video) }}" type="video/mp4">
+        </video>
+        {% endif %}
+        <button class="btn btn-primary btn-sm mb-2" data-bs-toggle="collapse" data-bs-target="#answer_form_{{ q.id }}">Cevap Gönder</button>
+        <div class="collapse" id="answer_form_{{ q.id }}">
+            <form method="POST" action="{{ url_for('answer', question_id=q.id) }}">
+                <input type="text" name="answer_text" class="form-control mb-2" placeholder="Cevap yaz..." required>
+                <button class="btn btn-success btn-sm">Gönder</button>
+            </form>
+        </div>
+        {% if q.answers %}
+        <hr>
+        <h6>Cevaplar:</h6>
+        {% for a in q.answers %}
+        <p>
+            <strong>{{ a.user.username }}:</strong> {{ a.text }}
+            {% if q.user_id == current_user.id and not a.is_solution %}
+            <a href="{{ url_for('mark_solution', answer_id=a.id) }}" class="btn btn-sm btn-outline-success ms-2">Çözüm Olarak İşaretle</a>
+            {% elif a.is_solution %}
+            <span class="badge bg-success ms-2">Çözüm</span>
+            {% endif %}
+        </p>
+        {% endfor %}
+        {% endif %}
+    </div>
+</div>
+</div>
+{% endfor %}
+</div>
+
+<script>
+function changeClass(){
+    let val = document.getElementById('class_select').value;
+    let category = document.getElementById('category_select').value;
+    window.location.href = "?class_level=" + val + "&category=" + category;
+}
+function changeCategory(){
+    let val = document.getElementById('class_select').value;
+    let category = document.getElementById('category_select').value;
+    window.location.href = "?class_level=" + val + "&category=" + category;
+}
+
+async function fetchNotifications(){
+    let res = await fetch('/notifications');
+    let data = await res.json();
+    const notifCount = document.getElementById('notif_count');
+    notifCount.innerText = data.length > 0 ? data.length : '';
+}
+fetchNotifications();
+setInterval(fetchNotifications, 5000);
+</script>
+{% endblock %}

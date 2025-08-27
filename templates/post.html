@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+        <h4 class="mb-0">{{ post.title }}</h4>
+        <div>
+            {% if current_user.id == post.author.id or current_user.is_admin %}
+            <a href="{{ url_for('edit_post', post_id=post.id) }}" class="btn btn-sm btn-outline-primary me-1">
+                <i class="fas fa-edit"></i> Düzenle
+            </a>
+            <a href="{{ url_for('delete_post', post_id=post.id) }}" class="btn btn-sm btn-outline-danger" 
+               onclick="return confirm('Bu konuyu silmek istediğinize emin misiniz?')">
+                <i class="fas fa-trash"></i> Sil
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="d-flex mb-3">
+            <div class="flex-shrink-0">
+                <img src="https://ui-avatars.com/api/?name={{ post.author.username }}&background=random&size=50" 
+                     class="rounded-circle" alt="{{ post.author.username }}">
+            </div>
+            <div class="flex-grow-1 ms-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <a href="{{ url_for('profile', username=post.author.username) }}" class="text-decoration-none">
+                            {{ post.author.username }}
+                        </a>
+                        <span class="badge bg-secondary ms-2">{{ post.author.rank }}</span>
+                    </h5>
+                    <small class="text-muted">{{ post.date_posted.strftime('%d.%m.%Y %H:%M') }}</small>
+                </div>
+                <p class="text-muted mb-2">
+                    <i class="fas fa-folder me-1"></i>{{ post.category.name }} • 
+                    <i class="fas fa-book me-1"></i>{{ post.unit.name }}
+                </p>
+                <div class="post-content">
+                    {{ post.content|replace('\n', '<br>')|safe }}
+                </div>
+                
+                <div class="d-flex mt-3">
+                    <a href="#" class="btn btn-sm btn-outline-primary me-2 like-btn" 
+                       data-item-type="post" data-item-id="{{ post.id }}">
+                        <i class="fas fa-heart me-1"></i>
+                        Beğen (<span class="like-count">{{ post.likes|length }}</span>)
+                    </a>
+                    <span class="badge bg-secondary me-2">
+                        <i class="fas fa-comments me-1"></i>{{ post.comments|length }} Yorum
+                    </span>
+                    {% if post.is_solved %}
+                    <span class="badge bg-success">
+                        <i class="fas fa-check me-1"></i>Çözüldü
+                    </span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Yorumlar -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light">
+        <h5 class="mb-0">Yorumlar ({{ post.comments|length }})</h5>
+    </div>
+    <div class="card-body">
+        {% if post.comments %}
+            {% for comment in post.comments %}
+            <div class="border-bottom pb-3 mb-3 {% if comment.is_solution %}border-success bg-light-solved{% endif %}">
+                <div class="d-flex">
+                    <div class="flex-shrink-0">
+                        <img src="https://ui-avatars.com/api/?name={{ comment.author.username }}&background=random&size=40" 
+                             class="rounded-circle" alt="{{ comment.author.username }}">
+                    </div>
+                    <div class="flex-grow-1 ms-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0">
+                                <a href="{{ url_for('profile', username=comment.author.username) }}" class="text-decoration-none">
+                                    {{ comment.author.username }}
+                                </a>
+                                {% if comment.is_solution %}
+                                <span class="badge bg-success ms-2"><i class="fas fa-check"></i> Çözüm</span>
+                                {% endif %}
+                            </h6>
+                            <small class="text-muted">{{ comment.date_posted.strftime('%d.%m.%Y %H:%M') }}</small>
+                        </div>
+                        <p class="mb-2 mt-2">{{ comment.content }}</p>
+                        
+                        <div class="d-flex">
+                            <a href="#" class="btn btn-sm btn-outline-primary me-2 like-btn" 
+                               data-item-type="comment" data-item-id="{{ comment.id }}">
+                                <i class="fas fa-heart me-1"></i>
+                                Beğen (<span class="like-count">{{ comment.likes|length }}</span>)
+                            </a>
+                            
+                            {% if current_user.id == post.author.id and not post.is_solved %}
+                            <a href="{{ url_for('mark_solution', comment_id=comment.id) }}" 
+                               class="btn btn-sm btn-outline-success me-2">
+                                <i class="fas fa-check me-1"></i>Çözüm Olarak İşaretle
+                            </a>
+                            {% endif %}
+                            
+                            {% if current_user.id == comment.author.id or current_user.is_admin %}
+                            <a href="{{ url_for('delete_comment', comment_id=comment.id) }}" 
+                               class="btn btn-sm btn-outline-danger"
+                               onclick="return confirm('Bu yorumu silmek istediğinize emin misiniz?')">
+                                <i class="fas fa-trash me-1"></i>Sil
+                            </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p class="text-muted text-center py-3">Henüz yorum yapılmamış. İlk yorumu siz yapın!</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Yorum Formu -->
+<div class="card shadow-sm">
+    <div class="card-header bg-light">
+        <h5 class="mb-0">Yorum Yap</h5>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('add_comment', post_id=post.id) }}">
+            <div class="mb-3">
+                <textarea class="form-control" name="content" rows="3" 
+                          placeholder="Yorumunuzu yazın..." required></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary">Yorum Gönder</button>
+        </form>
+    </div>
+</div>
+
+<script>
+    // Beğeni butonları için işlevsellik
+    document.addEventListener('click', function(e) {
+        if (e.target.classList.contains('like-btn') || e.target.closest('.like-btn')) {
+            e.preventDefault();
+            const likeBtn = e.target.classList.contains('like-btn') ? e.target : e.target.closest('.like-btn');
+            const itemType = likeBtn.dataset.itemType;
+            const itemId = likeBtn.dataset.itemId;
+            
+            fetch(`/like/${itemType}/${itemId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const likeCount = likeBtn.querySelector('.like-count');
+                        likeCount.textContent = data.like_count;
+                        
+                        if (data.liked) {
+                            likeBtn.classList.remove('btn-outline-primary');
+                            likeBtn.classList.add('btn-primary');
+                        } else {
+                            likeBtn.classList.remove('btn-primary');
+                            likeBtn.classList.add('btn-outline-primary');
+                        }
+                    }
+                });
+        }
+    });
+</script>
+{% endblock %}

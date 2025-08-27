@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="text-center mt-5">
+    <h1 class="display-4 fw-bold text-primary">BeyinMatik</h1>
+    <p class="lead">Ortaokul öğrencileri için modern soru çözüm ve destek platformu</p>
+    {% if not current_user.is_authenticated %}
+    <a class="btn btn-success btn-lg m-2 shadow-sm" href="{{ url_for('register') }}">Kayıt Ol</a>
+    <a class="btn btn-primary btn-lg m-2 shadow-sm" href="{{ url_for('login') }}">Giriş Yap</a>
+    {% else %}
+    <a class="btn btn-primary btn-lg m-2 shadow-sm" href="{{ url_for('dashboard') }}">Dashboard'a Git</a>
+    {% endif %}
+</div>
+{% endblock %}
