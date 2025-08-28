@@ -9,7 +9,16 @@ import uuid
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'supersecretkey'
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///beyinmatik.db')
+
+# PostgreSQL URL düzeltme
+uri = os.environ.get('DATABASE_URL')
+if uri:
+    if uri.startswith('postgres://'):
+        uri = uri.replace('postgres://', 'postgresql://', 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = uri
+else:
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///beyinmatik.db'
+
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     "pool_recycle": 300,
     "pool_pre_ping": True,
@@ -42,6 +51,7 @@ class User(UserMixin, db.Model):
     rank = db.Column(db.String(50), default="Çaylak Üye")
     is_admin = db.Column(db.Boolean, default=False)
     is_banned = db.Column(db.Boolean, default=False)
+    ban_reason = db.Column(db.String(200), nullable=True)
     notifications = db.relationship('Notification', backref='user', lazy=True)
     posts = db.relationship('Post', backref='author', lazy=True)
     comments = db.relationship('Comment', backref='author', lazy=True)
@@ -197,7 +207,7 @@ def login():
         
         if user and check_password_hash(user.password, password):
             if user.is_banned:
-                flash('Hesabınız banlanmış!', 'danger')
+                flash('Hesabınız banlanmış! Sebep: ' + (user.ban_reason or 'Belirtilmemiş'), 'danger')
                 return redirect(url_for('login'))
             login_user(user)
             next_page = request.args.get('next')
@@ -212,7 +222,7 @@ def login():
 @login_required
 def forum():
     if current_user.is_banned:
-        flash('Hesabınız banlanmış!', 'danger')
+        flash('Hesabınız banlanmış! Foruma erişim izniniz yok.', 'danger')
         return redirect(url_for('logout'))
         
     class_level = request.args.get('class_level', current_user.class_level)
@@ -220,7 +230,7 @@ def forum():
     unit_id = request.args.get('unit_id', type=int)
     search_query = request.args.get('q', '')
     
-    query = Post.query
+    query = Post.query.join(User).filter(User.is_banned == False)
     
     if class_level and class_level != 'Hepsi':
         query = query.join(Category).filter(Category.class_level == class_level)
@@ -246,7 +256,7 @@ def forum():
 @login_required
 def create_post():
     if current_user.is_banned:
-        flash('Hesabınız banlanmış!', 'danger')
+        flash('Hesabınız banlanmış! Konu açamazsınız.', 'danger')
         return redirect(url_for('logout'))
         
     if request.method == 'POST':
@@ -293,17 +303,21 @@ def create_post():
 @login_required
 def view_post(post_id):
     if current_user.is_banned:
-        flash('Hesabınız banlanmış!', 'danger')
+        flash('Hesabınız banlanmış! Konuları görüntüleyemezsiniz.', 'danger')
         return redirect(url_for('logout'))
         
     post = Post.query.get_or_404(post_id)
+    if post.author.is_banned:
+        flash('Bu konunun yazarı banlanmış!', 'warning')
+        return redirect(url_for('forum'))
+        
     return render_template('post.html', post=post)
 
 @app.route('/add_comment/<int:post_id>', methods=['POST'])
 @login_required
 def add_comment(post_id):
     if current_user.is_banned:
-        flash('Hesabınız banlanmış!', 'danger')
+        flash('Hesabınız banlanmış! Yorum yapamazsınız.', 'danger')
         return redirect(url_for('logout'))
         
     content = request.form['content']
@@ -342,7 +356,7 @@ def add_comment(post_id):
 @login_required
 def mark_solution(comment_id):
     if current_user.is_banned:
-        flash('Hesabınız banlanmış!', 'danger')
+        flash('Hesabınız banlanmış! İşlem yapamazsınız.', 'danger')
         return redirect(url_for('logout'))
         
     comment = Comment.query.get_or_404(comment_id)
@@ -422,10 +436,14 @@ def like_item(item_type, item_id):
 @login_required
 def profile(username):
     if current_user.is_banned:
-        flash('Hesabınız banlanmış!', 'danger')
+        flash('Hesabınız banlanmış! Profilleri görüntüleyemezsiniz.', 'danger')
         return redirect(url_for('logout'))
         
     user = User.query.filter_by(username=username).first_or_404()
+    if user.is_banned:
+        flash('Bu kullanıcı banlanmış!', 'warning')
+        return redirect(url_for('forum'))
+        
     posts = Post.query.filter_by(user_id=user.id).order_by(Post.date_posted.desc()).limit(10).all()
     comments = Comment.query.filter_by(user_id=user.id).order_by(Comment.date_posted.desc()).limit(10).all()
     
@@ -435,7 +453,7 @@ def profile(username):
 @login_required
 def update_profile():
     if current_user.is_banned:
-        flash('Hesabınız banlanmış!', 'danger')
+        flash('Hesabınız banlanmış! Profil düzenleyemezsiniz.', 'danger')
         return redirect(url_for('logout'))
         
     if request.method == 'POST':
@@ -492,7 +510,7 @@ def get_notifications():
 @login_required
 def leaderboard():
     if current_user.is_banned:
-        flash('Hesabınız banlanmış!', 'danger')
+        flash('Hesabınız banlanmış! Liderlik tablosunu görüntüleyemezsiniz.', 'danger')
         return redirect(url_for('logout'))
         
     users = User.query.filter_by(is_banned=False).order_by(User.solution_count.desc()).all()
@@ -511,7 +529,7 @@ def admin_panel():
     
     return render_template('admin.html', users=users, posts=posts, categories=categories)
 
-@app.route('/ban_user/<int:user_id>')
+@app.route('/ban_user/<int:user_id>', methods=['GET', 'POST'])
 @login_required
 def ban_user(user_id):
     if not current_user.is_admin:
@@ -519,11 +537,17 @@ def ban_user(user_id):
         return redirect(url_for('forum'))
     
     user = User.query.get_or_404(user_id)
-    user.is_banned = True
-    db.session.commit()
     
-    flash(f'{user.username} kullanıcısı banlandı!', 'success')
-    return redirect(url_for('admin_panel'))
+    if request.method == 'POST':
+        ban_reason = request.form.get('ban_reason', '')
+        user.is_banned = True
+        user.ban_reason = ban_reason
+        db.session.commit()
+        
+        flash(f'{user.username} kullanıcısı banlandı! Sebep: {ban_reason}', 'success')
+        return redirect(url_for('admin_panel'))
+    
+    return render_template('ban_user.html', user=user)
 
 @app.route('/unban_user/<int:user_id>')
 @login_required
@@ -534,6 +558,7 @@ def unban_user(user_id):
     
     user = User.query.get_or_404(user_id)
     user.is_banned = False
+    user.ban_reason = None
     db.session.commit()
     
     flash(f'{user.username} kullanıcısının banı kaldırıldı!', 'success')
@@ -619,7 +644,7 @@ def delete_comment(comment_id):
 @login_required
 def edit_post(post_id):
     if current_user.is_banned:
-        flash('Hesabınız banlanmış!', 'danger')
+        flash('Hesabınız banlanmış! Konu düzenleyemezsiniz.', 'danger')
         return redirect(url_for('logout'))
         
     post = Post.query.get_or_404(post_id)
@@ -699,4 +724,3 @@ if __name__ == '__main__':
     create_database()
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
-
