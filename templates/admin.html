@@ -37,6 +37,7 @@
                                 <th>Rank</th>
                                 <th>Çözüm</th>
                                 <th>Admin</th>
+                                <th>Durum</th>
                                 <th>İşlemler</th>
                             </tr>
                         </thead>
@@ -44,7 +45,16 @@
                             {% for user in users %}
                             <tr>
                                 <td>{{ user.id }}</td>
-                                <td>{{ user.username }}</td>
+                                <td>
+                                    {% if user.profile_picture %}
+                                    <img src="{{ url_for('static', filename='uploads/' + user.profile_picture) }}" 
+                                         class="rounded-circle me-2" style="width: 30px; height: 30px; object-fit: cover;">
+                                    {% else %}
+                                    <img src="https://ui-avatars.com/api/?name={{ user.username }}&background=007bff&color=fff&size=30" 
+                                         class="rounded-circle me-2">
+                                    {% endif %}
+                                    {{ user.username }}
+                                </td>
                                 <td>{{ user.class_level }}</td>
                                 <td>{{ user.rank }}</td>
                                 <td>{{ user.solution_count }}</td>
@@ -56,8 +66,26 @@
                                     {% endif %}
                                 </td>
                                 <td>
+                                    {% if user.is_banned %}
+                                    <span class="badge bg-danger">Banlı</span>
+                                    {% else %}
+                                    <span class="badge bg-success">Aktif</span>
+                                    {% endif %}
+                                </td>
+                                <td>
                                     {% if not user.is_admin %}
-                                    <a href="#" class="btn btn-sm btn-outline-success">Admin Yap</a>
+                                        {% if user.is_banned %}
+                                        <a href="{{ url_for('unban_user', user_id=user.id) }}" class="btn btn-sm btn-success">
+                                            <i class="fas fa-check"></i> Banı Kaldır
+                                        </a>
+                                        {% else %}
+                                        <a href="{{ url_for('ban_user', user_id=user.id) }}" class="btn btn-sm btn-danger"
+                                           onclick="return confirm('{{ user.username }} kullanıcısını banlamak istediğinize emin misiniz?')">
+                                            <i class="fas fa-ban"></i> Banla
+                                        </a>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="text-muted">Admin</span>
                                     {% endif %}
                                 </td>
                             </tr>
@@ -86,6 +114,7 @@
                                 <th>Kategori</th>
                                 <th>Tarih</th>
                                 <th>Çözüldü</th>
+                                <th>Sabit</th>
                                 <th>İşlemler</th>
                             </tr>
                         </thead>
@@ -105,10 +134,25 @@
                                     {% endif %}
                                 </td>
                                 <td>
+                                    {% if post.is_pinned %}
+                                    <span class="badge bg-warning">Evet</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">Hayır</span>
+                                    {% endif %}
+                                </td>
+                                <td>
                                     <a href="{{ url_for('view_post', post_id=post.id) }}" 
                                        class="btn btn-sm btn-outline-primary">Görüntüle</a>
+                                    {% if post.is_pinned %}
+                                    <a href="{{ url_for('unpin_post', post_id=post.id) }}" 
+                                       class="btn btn-sm btn-outline-warning">Sabitliği Kaldır</a>
+                                    {% else %}
+                                    <a href="{{ url_for('pin_post', post_id=post.id) }}" 
+                                       class="btn btn-sm btn-outline-warning">Sabitle</a>
+                                    {% endif %}
                                     <a href="{{ url_for('delete_post', post_id=post.id) }}" 
-                                       class="btn btn-sm btn-outline-danger">Sil</a>
+                                       class="btn btn-sm btn-outline-danger"
+                                       onclick="return confirm('Bu konuyu silmek istediğinize emin misiniz?')">Sil</a>
                                 </td>
                             </tr>
                             {% endfor %}
