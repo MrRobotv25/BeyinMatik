@@ -65,6 +65,7 @@
             <div class="card-body">
                 <p class="mb-1">Toplam Konu: {{ posts|length }}</p>
                 <p class="mb-1">Çözülen Konu: {{ posts|selectattr('is_solved')|list|length }}</p>
+                <p class="mb-1">Sabitlenen Konu: {{ posts|selectattr('is_pinned')|list|length }}</p>
                 <p class="mb-0">Aktif Kullanıcı: {{ current_user.username }}</p>
             </div>
         </div>
@@ -78,12 +79,15 @@
                 </div>
                 <div class="card-body p-0">
                     {% for post in posts %}
-                    <div class="border-bottom p-3 {% if post.is_solved %}bg-light-solved{% endif %}">
+                    <div class="border-bottom p-3 {% if post.is_solved %}bg-light-solved{% endif %} {% if post.is_pinned %}bg-warning bg-opacity-10{% endif %}">
                         <div class="d-flex justify-content-between align-items-start">
                             <div class="flex-grow-1">
                                 <h5 class="mb-1">
                                     <a href="{{ url_for('view_post', post_id=post.id) }}" class="text-decoration-none">
                                         {{ post.title }}
+                                        {% if post.is_pinned %}
+                                        <span class="badge bg-warning ms-1"><i class="fas fa-thumbtack"></i> Sabitlenmiş</span>
+                                        {% endif %}
                                         {% if post.is_solved %}
                                         <span class="badge bg-success ms-1"><i class="fas fa-check"></i> Çözüldü</span>
                                         {% endif %}
@@ -108,8 +112,13 @@
                                 </div>
                             </div>
                             <div class="flex-shrink-0 ms-3">
+                                {% if post.author.profile_picture %}
+                                <img src="{{ url_for('static', filename='uploads/' + post.author.profile_picture) }}" 
+                                     class="rounded-circle" alt="{{ post.author.username }}" style="width: 40px; height: 40px; object-fit: cover;">
+                                {% else %}
                                 <img src="https://ui-avatars.com/api/?name={{ post.author.username }}&background=random&size=40" 
                                      class="rounded-circle" alt="{{ post.author.username }}">
+                                {% endif %}
                             </div>
                         </div>
                     </div>
