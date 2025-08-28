@@ -4,8 +4,13 @@
     <div class="col-md-4">
         <div class="card shadow-sm mb-4">
             <div class="card-body text-center">
+                {% if user.profile_picture %}
+                <img src="{{ url_for('static', filename='uploads/' + user.profile_picture) }}" 
+                     class="rounded-circle mb-3" alt="{{ user.username }}" style="width: 120px; height: 120px; object-fit: cover;">
+                {% else %}
                 <img src="https://ui-avatars.com/api/?name={{ user.username }}&background=007bff&color=fff&size=120" 
                      class="rounded-circle mb-3" alt="{{ user.username }}">
+                {% endif %}
                 <h3>{{ user.username }}</h3>
                 <p class="text-muted">{{ user.rank }}</p>
                 
@@ -27,8 +32,38 @@
                 <p class="text-muted">
                     <i class="fas fa-graduation-cap me-1"></i>{{ user.class_level }}. Sınıf
                 </p>
+
+                {% if user.is_banned %}
+                <div class="alert alert-danger mt-3">
+                    <i class="fas fa-ban me-1"></i>Bu kullanıcı banlanmış
+                </div>
+                {% endif %}
             </div>
         </div>
+
+        {% if current_user.id == user.id %}
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="fas fa-cog me-2"></i>Profil Ayarları</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('update_profile') }}" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label class="form-label">Profil Fotoğrafı</label>
+                        <input type="file" class="form-control" name="profile_picture" accept="image/*">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Yeni Şifre</label>
+                        <input type="password" class="form-control" name="new_password" 
+                               placeholder="Yeni şifrenizi girin (değiştirmek istemiyorsanız boş bırakın)">
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary w-100">Güncelle</button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
     </div>
     
     <div class="col-md-8">
@@ -47,10 +82,10 @@
             </li>
         </ul>
         
-        <div class="tab-content" id="profileTabsContent">
+        <div class="tab-content mt-3" id="profileTabsContent">
             <!-- Konular -->
             <div class="tab-pane fade show active" id="posts" role="tabpanel">
-                <div class="card mt-3">
+                <div class="card">
                     <div class="card-body">
                         {% if posts %}
                             {% for post in posts %}
@@ -58,6 +93,9 @@
                                 <h5>
                                     <a href="{{ url_for('view_post', post_id=post.id) }}" class="text-decoration-none">
                                         {{ post.title }}
+                                        {% if post.is_pinned %}
+                                        <span class="badge bg-warning ms-1"><i class="fas fa-thumbtack"></i> Sabitlenmiş</span>
+                                        {% endif %}
                                     </a>
                                 </h5>
                                 <p class="text-muted small">
@@ -90,7 +128,7 @@
             
             <!-- Yorumlar -->
             <div class="tab-pane fade" id="comments" role="tabpanel">
-                <div class="card mt-3">
+                <div class="card">
                     <div class="card-body">
                         {% if comments %}
                             {% for comment in comments %}
@@ -121,7 +159,7 @@
             
             <!-- Çözümler -->
             <div class="tab-pane fade" id="solutions" role="tabpanel">
-                <div class="card mt-3">
+                <div class="card">
                     <div class="card-body">
                         {% set solutions = comments|selectattr('is_solution')|list %}
                         {% if solutions %}
