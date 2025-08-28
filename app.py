@@ -9,7 +9,11 @@ import uuid
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'supersecretkey'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///beyinmatik.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///beyinmatik.db')
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    "pool_recycle": 300,
+    "pool_pre_ping": True,
+}
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
@@ -32,10 +36,12 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(150), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
+    profile_picture = db.Column(db.String(200), nullable=True)
     class_level = db.Column(db.String(10), default="5")
     solution_count = db.Column(db.Integer, default=0)
     rank = db.Column(db.String(50), default="Çaylak Üye")
     is_admin = db.Column(db.Boolean, default=False)
+    is_banned = db.Column(db.Boolean, default=False)
     notifications = db.relationship('Notification', backref='user', lazy=True)
     posts = db.relationship('Post', backref='author', lazy=True)
     comments = db.relationship('Comment', backref='author', lazy=True)
@@ -64,6 +70,7 @@ class Post(db.Model):
     category_id = db.Column(db.Integer, db.ForeignKey('category.id'))
     unit_id = db.Column(db.Integer, db.ForeignKey('unit.id'))
     is_solved = db.Column(db.Boolean, default=False)
+    is_pinned = db.Column(db.Boolean, default=False)
     comments = db.relationship('Comment', backref='post', lazy=True)
     likes = db.relationship('Like', backref='post', lazy=True)
 
@@ -97,7 +104,9 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 def update_rank(user):
-    if user.solution_count >= 20:
+    if user.is_admin:
+        user.rank = "FORUM KURUCUSU"
+    elif user.solution_count >= 20:
         user.rank = "Usta Üye"
     elif user.solution_count >= 10:
         user.rank = "Zeki Üye"
@@ -187,6 +196,9 @@ def login():
         user = User.query.filter_by(username=username).first()
         
         if user and check_password_hash(user.password, password):
+            if user.is_banned:
+                flash('Hesabınız banlanmış!', 'danger')
+                return redirect(url_for('login'))
             login_user(user)
             next_page = request.args.get('next')
             return redirect(next_page) if next_page else redirect(url_for('forum'))
@@ -199,6 +211,10 @@ def login():
 @app.route('/forum')
 @login_required
 def forum():
+    if current_user.is_banned:
+        flash('Hesabınız banlanmış!', 'danger')
+        return redirect(url_for('logout'))
+        
     class_level = request.args.get('class_level', current_user.class_level)
     category_id = request.args.get('category_id', type=int)
     unit_id = request.args.get('unit_id', type=int)
@@ -218,7 +234,7 @@ def forum():
     if search_query:
         query = query.filter(Post.title.ilike(f'%{search_query}%') | Post.content.ilike(f'%{search_query}%'))
     
-    posts = query.order_by(Post.date_posted.desc()).all()
+    posts = query.order_by(Post.is_pinned.desc(), Post.date_posted.desc()).all()
     
     categories = Category.query.all()
     units = Unit.query.all()
@@ -229,6 +245,10 @@ def forum():
 @app.route('/create_post', methods=['GET', 'POST'])
 @login_required
 def create_post():
+    if current_user.is_banned:
+        flash('Hesabınız banlanmış!', 'danger')
+        return redirect(url_for('logout'))
+        
     if request.method == 'POST':
         title = request.form['title']
         content = request.form['content']
@@ -272,12 +292,20 @@ def create_post():
 @app.route('/post/<int:post_id>')
 @login_required
 def view_post(post_id):
+    if current_user.is_banned:
+        flash('Hesabınız banlanmış!', 'danger')
+        return redirect(url_for('logout'))
+        
     post = Post.query.get_or_404(post_id)
     return render_template('post.html', post=post)
 
 @app.route('/add_comment/<int:post_id>', methods=['POST'])
 @login_required
 def add_comment(post_id):
+    if current_user.is_banned:
+        flash('Hesabınız banlanmış!', 'danger')
+        return redirect(url_for('logout'))
+        
     content = request.form['content']
     
     image_filename = None
@@ -313,6 +341,10 @@ def add_comment(post_id):
 @app.route('/mark_solution/<int:comment_id>')
 @login_required
 def mark_solution(comment_id):
+    if current_user.is_banned:
+        flash('Hesabınız banlanmış!', 'danger')
+        return redirect(url_for('logout'))
+        
     comment = Comment.query.get_or_404(comment_id)
     post = Post.query.get_or_404(comment.post_id)
     
@@ -344,6 +376,9 @@ def mark_solution(comment_id):
 @app.route('/like/<string:item_type>/<int:item_id>')
 @login_required
 def like_item(item_type, item_id):
+    if current_user.is_banned:
+        return jsonify({'success': False, 'message': 'Hesabınız banlanmış!'})
+        
     if item_type == 'post':
         item = Post.query.get_or_404(item_id)
         existing_like = Like.query.filter_by(user_id=current_user.id, post_id=item_id).first()
@@ -386,15 +421,57 @@ def like_item(item_type, item_id):
 @app.route('/profile/<username>')
 @login_required
 def profile(username):
+    if current_user.is_banned:
+        flash('Hesabınız banlanmış!', 'danger')
+        return redirect(url_for('logout'))
+        
     user = User.query.filter_by(username=username).first_or_404()
     posts = Post.query.filter_by(user_id=user.id).order_by(Post.date_posted.desc()).limit(10).all()
     comments = Comment.query.filter_by(user_id=user.id).order_by(Comment.date_posted.desc()).limit(10).all()
     
     return render_template('profile.html', user=user, posts=posts, comments=comments)
 
+@app.route('/update_profile', methods=['POST'])
+@login_required
+def update_profile():
+    if current_user.is_banned:
+        flash('Hesabınız banlanmış!', 'danger')
+        return redirect(url_for('logout'))
+        
+    if request.method == 'POST':
+        # Profil fotoğrafı yükleme
+        if 'profile_picture' in request.files:
+            file = request.files['profile_picture']
+            if file and file.filename != '' and allowed_file(file.filename):
+                filename = secure_filename(file.filename)
+                profile_filename = get_random_filename(filename)
+                file.save(os.path.join(app.config['UPLOAD_FOLDER'], profile_filename))
+                
+                # Eski fotoğrafı sil
+                if current_user.profile_picture:
+                    try:
+                        os.remove(os.path.join(app.config['UPLOAD_FOLDER'], current_user.profile_picture))
+                    except:
+                        pass
+                
+                current_user.profile_picture = profile_filename
+        
+        # Şifre değiştirme
+        new_password = request.form.get('new_password')
+        if new_password:
+            current_user.password = generate_password_hash(new_password)
+        
+        db.session.commit()
+        flash('Profil başarıyla güncellendi!', 'success')
+    
+    return redirect(url_for('profile', username=current_user.username))
+
 @app.route('/notifications')
 @login_required
 def get_notifications():
+    if current_user.is_banned:
+        return jsonify([])
+        
     notifications = Notification.query.filter_by(user_id=current_user.id, seen=False).order_by(Notification.date_created.desc()).all()
     
     notif_list = [{
@@ -414,7 +491,11 @@ def get_notifications():
 @app.route('/leaderboard')
 @login_required
 def leaderboard():
-    users = User.query.order_by(User.solution_count.desc()).all()
+    if current_user.is_banned:
+        flash('Hesabınız banlanmış!', 'danger')
+        return redirect(url_for('logout'))
+        
+    users = User.query.filter_by(is_banned=False).order_by(User.solution_count.desc()).all()
     return render_template('leaderboard.html', users=users)
 
 @app.route('/admin')
@@ -429,6 +510,62 @@ def admin_panel():
     categories = Category.query.all()
     
     return render_template('admin.html', users=users, posts=posts, categories=categories)
+
+@app.route('/ban_user/<int:user_id>')
+@login_required
+def ban_user(user_id):
+    if not current_user.is_admin:
+        flash('Admin erişiminiz yok!', 'danger')
+        return redirect(url_for('forum'))
+    
+    user = User.query.get_or_404(user_id)
+    user.is_banned = True
+    db.session.commit()
+    
+    flash(f'{user.username} kullanıcısı banlandı!', 'success')
+    return redirect(url_for('admin_panel'))
+
+@app.route('/unban_user/<int:user_id>')
+@login_required
+def unban_user(user_id):
+    if not current_user.is_admin:
+        flash('Admin erişiminiz yok!', 'danger')
+        return redirect(url_for('forum'))
+    
+    user = User.query.get_or_404(user_id)
+    user.is_banned = False
+    db.session.commit()
+    
+    flash(f'{user.username} kullanıcısının banı kaldırıldı!', 'success')
+    return redirect(url_for('admin_panel'))
+
+@app.route('/pin_post/<int:post_id>')
+@login_required
+def pin_post(post_id):
+    if not current_user.is_admin:
+        flash('Admin erişiminiz yok!', 'danger')
+        return redirect(url_for('forum'))
+    
+    post = Post.query.get_or_404(post_id)
+    post.is_pinned = True
+    db.session.commit()
+    
+    flash('Konu sabitlendi!', 'success')
+    return redirect(url_for('view_post', post_id=post_id))
+
+@app.route('/unpin_post/<int:post_id>')
+@login_required
+def unpin_post(post_id):
+    if not current_user.is_admin:
+        flash('Admin erişiminiz yok!', 'danger')
+        return redirect(url_for('forum'))
+    
+    post = Post.query.get_or_404(post_id)
+    post.is_pinned = False
+    db.session.commit()
+    
+    flash('Konu sabitlenmekten çıkarıldı!', 'success')
+    return redirect(url_for('view_post', post_id=post_id))
 
 @app.route('/delete_post/<int:post_id>')
 @login_required
@@ -481,6 +618,10 @@ def delete_comment(comment_id):
 @app.route('/edit_post/<int:post_id>', methods=['GET', 'POST'])
 @login_required
 def edit_post(post_id):
+    if current_user.is_banned:
+        flash('Hesabınız banlanmış!', 'danger')
+        return redirect(url_for('logout'))
+        
     post = Post.query.get_or_404(post_id)
     
     if not (current_user.is_admin or post.author.id == current_user.id):
@@ -537,48 +678,24 @@ def logout():
 
 def create_database():
     with app.app_context():
-        # Veritabanı tablolarını oluştur
         db.create_all()
-        print("Veritabanı tabloları oluşturuldu!")
-        
-        # Kategorileri başlat
         init_categories()
-        print("Kategoriler eklendi!")
         
-        # Admin kullanıcısını oluştur (eğer yoksa)
-        if not User.query.filter_by(username='admin').first():
+        if not User.query.filter_by(username='Yönetici').first():
             admin_user = User(
-                username='admin', 
+                username='Yönetici', 
                 password=generate_password_hash('admin123'),
                 class_level='Genel',
-                is_admin=True
+                is_admin=True,
+                rank='FORUM KURUCUSU'
             )
             db.session.add(admin_user)
             db.session.commit()
-            print("Admin kullanıcısı oluşturuldu!")
         
-        print("Veritabanı başarıyla hazırlandı!")
+        print("Veritabanı başarıyla oluşturuldu!")
 
 if __name__ == '__main__':
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-    
-    # Veritabanını oluştur
-    with app.app_context():
-        db.create_all()
-        init_categories()
-        
-        # Admin kullanıcısını kontrol et ve oluştur
-        if not User.query.filter_by(username='admin').first():
-            admin_user = User(
-                username='admin', 
-                password=generate_password_hash('admin123'),
-                class_level='Genel',
-                is_admin=True
-            )
-            db.session.add(admin_user)
-            db.session.commit()
-    
+    create_database()
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
-
-
